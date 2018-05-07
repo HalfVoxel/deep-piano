@@ -7,10 +7,9 @@ def get_notes():
     """ Get all the notes and chords from the midi files in the ./midi_songs directory """
     notes = []
 
-    for file in glob.glob('data/*/*.mid'):
-        midi = converter.parse(file)
-
+    for file in glob.glob('data/*/*.mid')[0:4]:
         print("Parsing %s" % file)
+        midi = converter.parse(file)
 
         notes_to_parse = None
 
@@ -26,10 +25,11 @@ def get_notes():
             elif isinstance(element, chord.Chord):
                 notes.append('.'.join(str(n) for n in element.normalOrder))
 
-    with open('data/notes', 'wb') as f:
-        pickle.dump(notes, f)
+    with open('data/notes', 'wb') as filepath:
+        pickle.dump(notes, filepath)
 
     return notes
 
-x = get_notes()
-print(x)
+if __name__ == "__main__":
+    x = get_notes()
+    print(x)
