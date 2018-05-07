@@ -1,6 +1,7 @@
 import music21
 from music21 import *
 import glob
+import pickle
 
 def get_notes():
     """ Get all the notes and chords from the midi files in the ./midi_songs directory """
@@ -25,8 +26,8 @@ def get_notes():
             elif isinstance(element, chord.Chord):
                 notes.append('.'.join(str(n) for n in element.normalOrder))
 
-    #with open('data/notes', 'wb') as filepath:
-        #pickle.dump(notes, filepath)
+    with open('data/notes', 'wb') as f:
+        pickle.dump(notes, f)
 
     return notes
 
