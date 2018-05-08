@@ -8,10 +8,15 @@ def get_notes():
     """ Get all the notes and chords from the midi files in the data directory """
     notes = []
 
+<<<<<<< HEAD:read-data.py
     for file in glob.glob('data/bach/*/*.mid'): #only reads Bach
         midi = converter.parse(file)
 
+=======
+    for file in glob.glob('data/*/*.mid')[0:4]:
+>>>>>>> aa8c18e1ac959e0bbfcb18e454df459efca93c21:read_data.py
         print("Parsing %s" % file)
+        midi = converter.parse(file)
 
         notes_to_parse = None
 
@@ -27,6 +32,7 @@ def get_notes():
             elif isinstance(element, chord.Chord):
                 notes.append('.'.join(str(n) for n in element.normalOrder))
 
+<<<<<<< HEAD:read-data.py
     with open('data/notes/notes.pickle', 'wb') as f:
         pickle.dump(notes, f)
 
@@ -38,3 +44,13 @@ def get_pickle():
         unpickled = load(f)
 
     return unpickled
+=======
+    with open('data/notes', 'wb') as filepath:
+        pickle.dump(notes, filepath)
+
+    return notes
+
+if __name__ == "__main__":
+    x = get_notes()
+    print(x)
+>>>>>>> aa8c18e1ac959e0bbfcb18e454df459efca93c21:read_data.py
