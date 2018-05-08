@@ -2,12 +2,13 @@ import music21
 from music21 import *
 import glob
 import pickle
+from pickle import load, dump
 
 def get_notes():
-    """ Get all the notes and chords from the midi files in the ./midi_songs directory """
+    """ Get all the notes and chords from the midi files in the data directory """
     notes = []
 
-    for file in glob.glob('data/*/*.mid'):
+    for file in glob.glob('data/bach/*/*.mid'): #only reads Bach
         midi = converter.parse(file)
 
         print("Parsing %s" % file)
@@ -26,10 +27,14 @@ def get_notes():
             elif isinstance(element, chord.Chord):
                 notes.append('.'.join(str(n) for n in element.normalOrder))
 
-    with open('data/notes', 'wb') as f:
+    with open('data/notes/notes.pickle', 'wb') as f:
         pickle.dump(notes, f)
 
     return notes
 
-x = get_notes()
-print(x)
+def get_pickle():
+
+    with open('data/notes/notes.pickle', 'rb') as f:
+        unpickled = load(f)
+
+    return unpickled
