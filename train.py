@@ -85,7 +85,9 @@ def prepare_input(notes, num_notes, num_durations, note_to_int, duration_to_int,
 
     network_output = to_categorical(network_output, num_classes=num_notes)
     network_output2 = to_categorical(network_output2, num_classes=num_durations)
-    return TrainingData([network_input, network_input2], [network_output, network_output2])
+
+    perm = np.random.permutation(n_patterns)
+    return TrainingData([network_input[perm], network_input2[perm]], [network_output[perm], network_output2[perm]])
 
 
 def create_model(sequence_length, n_vocab, n_durations):
@@ -132,7 +134,7 @@ def train_model():
     tensorboard = TensorBoard(log_dir='./logs', histogram_freq=0, write_graph=True, write_images=False)
     callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, num_notes, num_durations, int_to_note, int_to_duration, epoch))]
     # model.load_weights('checkpoints/weights.hdf5')
-    model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.15)
+    model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.05)
 
 
 def load_and_generate():
