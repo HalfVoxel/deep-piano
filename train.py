@@ -1,8 +1,8 @@
 from collections import namedtuple
 import numpy as np
 from keras import Sequential, Model
-from keras.callbacks import ModelCheckpoint, LambdaCallback
-from keras.layers import LSTM, Dropout, Dense, Activation, Input
+from keras.callbacks import ModelCheckpoint, LambdaCallback, TensorBoard
+from keras.layers import LSTM, Dropout, Dense, Activation, Input, Embedding, Concatenate
 from keras.utils import to_categorical
 import read_data
 import os
@@ -71,8 +71,15 @@ def prepare_input(notes, num_notes, num_durations, note_to_int, duration_to_int,
     n_patterns = len(network_input)
 
     # reshape the input into a format compatible with LSTM layers
-    network_input = np.reshape(network_input, (n_patterns, sequence_length, 1))
-    network_input2 = np.reshape(network_input2, (n_patterns, sequence_length, 1))
+    network_input = np.reshape(network_input, (n_patterns, sequence_length))
+    network_input2 = np.reshape(network_input2, (n_patterns, sequence_length))
+
+    if np.max(network_input2) >= num_durations or np.min(network_input2) < 0:
+        raise Exception("Invalid duration index")
+
+    # Hopefully few notes
+    # network_input2 = to_categorical(network_input2)
+    # assert network_input2.shape == (n_patterns, sequence_length, num_durations)
     # normalize input
     # network_input = network_input / num_notes
 
@@ -84,9 +91,12 @@ def prepare_input(notes, num_notes, num_durations, note_to_int, duration_to_int,
 def create_model(sequence_length, n_vocab, n_durations):
     model = Sequential()
 
-    in_note = Input(shape=(sequence_length, 1))
-    in_duration = Input(shape=(sequence_length, 1))
-    x = LSTM(512, return_sequences=True)(in_note)
+    in_note = Input(shape=(sequence_length,))
+    in_duration = Input(shape=(sequence_length,))
+    en = Embedding(n_vocab,32, name="note_embedding")(in_note)
+    ed = Embedding(n_durations,4, name="duration_embedding")(in_duration)
+    x = Concatenate(axis=2)([en,ed])
+    x = LSTM(512, return_sequences=True)(x)
     x = Dropout(0.3)(x)
     x = LSTM(512, return_sequences=True)(x)
     x = Dropout(0.3)(x)
@@ -119,7 +129,8 @@ def train_model():
         save_best_only=True,
         mode='min'
     )
-    callbacks_list = [checkpoint, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, num_notes, num_durations, int_to_note, int_to_duration, epoch))]
+    tensorboard = TensorBoard(log_dir='./logs', histogram_freq=0, write_graph=True, write_images=False)
+    callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, num_notes, num_durations, int_to_note, int_to_duration, epoch))]
     # model.load_weights('checkpoints/weights.hdf5')
     model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.15)
 
@@ -131,17 +142,17 @@ def load_and_generate():
     pass
 
 
-def generate(model, input, num_notes, num_durations, int_to_note, int_to_duration, epoch):
+def generate(model, data, num_notes, num_durations, int_to_note, int_to_duration, epoch):
     print("Generating some stuff")
     # create a sequence of note/chord predictions
-    start = np.random.randint(0, len(input.input) - 1)
+    start = np.random.randint(0, data.input[0].shape[0] - 1)
 
-    notes, durations = list(input.input[start][0]), list(input.input[start][1])
+    notes, durations = list(data.input[0][start]), list(data.input[1][start])
     prediction_output = []
     # generate 500 notes
     for note_index in range(500):
-        prediction_input1 = np.reshape(notes, (1, len(notes), 1))
-        prediction_input2 = np.reshape(durations, (1, len(durations), 1))
+        prediction_input1 = np.reshape(notes, (1, len(notes)))
+        prediction_input2 = np.reshape(durations, (1, len(durations)))
         prediction_note, prediction_duration = model.predict([prediction_input1, prediction_input2], verbose=0)
         index1 = np.argmax(prediction_note)
         index2 = np.argmax(prediction_duration)
@@ -172,7 +183,7 @@ def generate(model, input, num_notes, num_durations, int_to_note, int_to_duratio
             new_element.storedInstrument = instrument.Piano()
 
         duration = float(duration)
-        new_note.duration.quarterLength = duration
+        new_element.duration.quarterLength = duration
         new_element.offset = offset
         output_notes.append(new_element)
         # increase offset each iteration so that notes do not stack
