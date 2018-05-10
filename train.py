@@ -1,161 +1,184 @@
 from collections import namedtuple
 import numpy as np
-from keras import Sequential
+from keras import Sequential, Model
 from keras.callbacks import ModelCheckpoint, LambdaCallback
-from keras.layers import LSTM, Dropout, Dense, Activation
+from keras.layers import LSTM, Dropout, Dense, Activation, Input
 from keras.utils import to_categorical
 import read_data
 import os
+import sys
+# sys.path.insert(1, os.path.join(sys.path[0], 'music21'))
+# print(sys.path)
 from music21 import note, chord, instrument, stream
 
 Dataset = namedtuple("Dataset", ["input", "output"])
 TrainingData = namedtuple("TrainingData", ["input", "output"])
 sequence_length = 100
 
-def analyze_data(notes):
-	# get all pitch names
-	pitchnames = sorted(set(notes))
 
-	# create a dictionary to map pitches to integers
-	note_to_int = dict((note, number) for number, note in enumerate(pitchnames))
-	return note_to_int
+def analyze_data(notes):
+    # get all pitch names
+    notes_names = sorted(set([note.split(":")[0] for note in notes]))
+    duration_names = sorted(set([str(round(float(note.split(":")[1]),4)) for note in notes]))
+
+    # create a dictionary to map pitches to integers
+    note_to_int = dict((note, number) for number, note in enumerate(notes_names))
+    duration_to_int = dict((dur, number) for number, dur in enumerate(duration_names))
+    int_to_note = {value: key for key, value in note_to_int.items()}
+    int_to_duration = {value: key for key, value in duration_to_int.items()}
+    return lambda x: note_to_int[x.split(":")[0]], lambda x: duration_to_int[str(round(float(x.split(":")[1]), 4))], len(note_to_int), len(duration_to_int), int_to_note, int_to_duration
 
 
 def load_data(midi_path):
-	''' Returns list of note squences '''
-	return read_data.get_notes()
+    ''' Returns list of note squences '''
+    return read_data.get_pickle()
+
 
 def split_data(data):
-	''' Splits data into train, test and validation datasets '''
-	# Cumulative split fractions
-	train_split = 0.80
-	test_split = 0.90
-	validation_split = 1.0
+    ''' Splits data into train, test and validation datasets '''
+    # Cumulative split fractions
+    train_split = 0.80
+    test_split = 0.90
+    validation_split = 1.0
 
-	train_i = int(train_split*len(data.input))
-	test_i = int(test_split*len(data.input))
-	validation_i = int(validation_split*len(data.input))
+    train_i = int(train_split * len(data.input))
+    test_i = int(test_split * len(data.input))
+    validation_i = int(validation_split * len(data.input))
 
-	train = TrainingData(data.input[0:train_i], data.output[0:train_i])
-	test = TrainingData(data.input[train_i:test_i], data.output[train_i:test_i])
-	validation = TrainingData(data.input[test_i:validation_i], data.output[test_i:validation_i])
-	return train, test, validation
-
-def prepare_input(notes, note_to_int):
-
-	network_input = []
-	network_output = []
-	print(len(notes))
-
-	# create input sequences and the corresponding outputs
-	for i in range(0, len(notes) - sequence_length, 1):
-		sequence_in = notes[i:i + sequence_length]
-		sequence_out = notes[i + sequence_length]
-		network_input.append([note_to_int[char] for char in sequence_in])
-		network_output.append(note_to_int[sequence_out])
-
-	n_patterns = len(network_input)
-
-	# reshape the input into a format compatible with LSTM layers
-	network_input = np.reshape(network_input, (n_patterns, sequence_length, 1))
-	# normalize input
-	network_input = network_input / len(note_to_int)
-
-	network_output = to_categorical(network_output)
-	return TrainingData(network_input, network_output)
+    train = TrainingData(data.input[0:train_i], data.output[0:train_i])
+    test = TrainingData(data.input[train_i:test_i], data.output[train_i:test_i])
+    validation = TrainingData(data.input[test_i:validation_i], data.output[test_i:validation_i])
+    return train, test, validation
 
 
-def create_model(input_shape, n_vocab):
-	model = Sequential()
-	print(input_shape)
-	assert len(input_shape) == 3
-	assert input_shape[2] == 1
+def prepare_input(notes, num_notes, num_durations, note_to_int, duration_to_int, sequence_length):
 
-	model.add(LSTM(
-		512,
-		input_shape=(input_shape[1], input_shape[2]),
-		return_sequences=True
-	))
-	model.add(Dropout(0.3))
-	model.add(LSTM(512, return_sequences=True))
-	model.add(Dropout(0.3))
-	model.add(LSTM(512))
-	model.add(Dense(256))
-	model.add(Dropout(0.3))
-	model.add(Dense(n_vocab))
-	model.add(Activation('softmax'))
-	model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
-	return model
+    network_input = []
+    network_input2 = []
+    network_output = []
+    network_output2 = []
+    print(num_notes, num_durations)
+
+    # create input sequences and the corresponding outputs
+    for i in range(0, len(notes) - sequence_length, 1):
+        sequence_in = notes[i:i + sequence_length]
+        sequence_out = notes[i + sequence_length]
+        network_input.append([note_to_int(char) for char in sequence_in])
+        network_input2.append([duration_to_int(char) for char in sequence_in])
+        network_output.append(note_to_int(sequence_out))
+        network_output2.append(duration_to_int(sequence_out))
+
+    n_patterns = len(network_input)
+
+    # reshape the input into a format compatible with LSTM layers
+    network_input = np.reshape(network_input, (n_patterns, sequence_length, 1))
+    network_input2 = np.reshape(network_input2, (n_patterns, sequence_length, 1))
+    # normalize input
+    # network_input = network_input / num_notes
+
+    network_output = to_categorical(network_output, num_classes=num_notes)
+    network_output2 = to_categorical(network_output2, num_classes=num_durations)
+    return TrainingData([network_input, network_input2], [network_output, network_output2])
+
+
+def create_model(sequence_length, n_vocab, n_durations):
+    model = Sequential()
+
+    in_note = Input(shape=(sequence_length, 1))
+    in_duration = Input(shape=(sequence_length, 1))
+    x = LSTM(512, return_sequences=True)(in_note)
+    x = Dropout(0.3)(x)
+    x = LSTM(512, return_sequences=True)(x)
+    x = Dropout(0.3)(x)
+    x = LSTM(512)(x)
+    x = Dense(256)(x)
+    drop = Dropout(0.3)(x)
+    vocab = Dense(n_vocab)(drop)
+    out_note = Activation('softmax', name="notes")(vocab)
+
+    duration = Dense(n_durations)(drop)
+    out_duration = Activation('softmax', name="durations")(duration)
+
+    model = Model(inputs=[in_note, in_duration], outputs=[out_note, out_duration])
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
+    return model
+
 
 def train_model():
-	data = load_data("data/final_fantasy")
-	note_to_int = analyze_data(data)
-	prepared = prepare_input(data, note_to_int)
-	train, test, validation = split_data(prepared)
-	model = create_model(train.input.shape, len(note_to_int))
-	os.makedirs("checkpoints", exist_ok=True)
-	filepath = "checkpoints/weights-improvement-{epoch:02d}-{loss:.4f}-bigger.hdf5"    
+    data = load_data("data/final_fantasy")
+    note_to_int, duration_to_int, num_notes, num_durations, int_to_note, int_to_duration = analyze_data(data)
+    prepared = prepare_input(data, num_notes, num_durations, note_to_int, duration_to_int, sequence_length)
+    # train, test, validation = split_data(prepared)
+    model = create_model(sequence_length, num_notes, num_durations)
+    os.makedirs("checkpoints", exist_ok=True)
+    filepath = "checkpoints/weights-improvement-{epoch:02d}-{loss:.4f}-bigger.hdf5"
 
-	checkpoint = ModelCheckpoint(
-		filepath, monitor='loss', 
-		verbose=0,
-		save_best_only=True,
-		mode='min'
-	)
-	callbacks_list = [checkpoint, LambdaCallback(on_epoch_begin=lambda batch, logs: generate(model, train, note_to_int))]
-	# model.load_weights('checkpoints/weights.hdf5')
-	model.fit(train.input, train.output, epochs=200, batch_size=200, callbacks=callbacks_list)
+    checkpoint = ModelCheckpoint(
+        filepath, monitor='loss',
+        verbose=0,
+        save_best_only=True,
+        mode='min'
+    )
+    callbacks_list = [checkpoint, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, num_notes, num_durations, int_to_note, int_to_duration, epoch))]
+    # model.load_weights('checkpoints/weights.hdf5')
+    model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.15)
+
 
 def load_and_generate():
-	# model = create_model()
-	# # Load the weights to each node
-	# model.load_weights('checkpoints/weights.hdf5')
-	pass
+    # model = create_model()
+    # # Load the weights to each node
+    # model.load_weights('checkpoints/weights.hdf5')
+    pass
 
-def generate(model, input, note_to_int):
-	print("Generating some stuff")
-	#create a sequence of note/chord predictions
-	start = np.random.randint(0, len(input.input)-1)
-	int_to_note = {value:key for key, value in note_to_int.items()}
-	# int_to_note = dict((number, note) for number, note in enumerate(pitchnames))
-	pattern = list(input.input[start])
-	prediction_output = []
-	# generate 500 notes
-	for note_index in range(500):
-		prediction_input = np.reshape(pattern, (1, len(pattern), 1))
-		prediction_input = prediction_input / float(len(note_to_int))
-		prediction = model.predict(prediction_input, verbose=0)
-		index = np.argmax(prediction)
-		result = int_to_note[index]
-		prediction_output.append(result)
-		pattern.append(index)
-		pattern = pattern[1:len(pattern)]
 
-	#create stream from predictions
-	offset = 0
-	output_notes = []
-	# create note and chord objects based on the values generated by the model
-	for pattern in prediction_output:
-		# pattern is a chord
-		if ('.' in pattern) or pattern.isdigit():
-			notes_in_chord = pattern.split('.')
-			notes = []
-			for current_note in notes_in_chord:
-				new_note = note.Note(int(current_note))
-				new_note.storedInstrument = instrument.Piano()
-				notes.append(new_note)
-			new_chord = chord.Chord(notes)
-			new_chord.offset = offset
-			output_notes.append(new_chord)
-		# pattern is a note
-		else:
-			new_note = note.Note(pattern)
-			new_note.offset = offset
-			new_note.storedInstrument = instrument.Piano()
-			output_notes.append(new_note)
-		# increase offset each iteration so that notes do not stack
-		offset += 0.5
-	midi_stream = stream.Stream(output_notes)
-	midi_stream.write('midi', fp='test_output.mid')
+def generate(model, input, num_notes, num_durations, int_to_note, int_to_duration, epoch):
+    print("Generating some stuff")
+    # create a sequence of note/chord predictions
+    start = np.random.randint(0, len(input.input) - 1)
+
+    notes, durations = list(input.input[start][0]), list(input.input[start][1])
+    prediction_output = []
+    # generate 500 notes
+    for note_index in range(500):
+        prediction_input1 = np.reshape(notes, (1, len(notes), 1))
+        prediction_input2 = np.reshape(durations, (1, len(durations), 1))
+        prediction_note, prediction_duration = model.predict([prediction_input1, prediction_input2], verbose=0)
+        index1 = np.argmax(prediction_note)
+        index2 = np.argmax(prediction_duration)
+        result = (int_to_note[index1], int_to_duration[index2])
+        prediction_output.append(result)
+        notes.append(index1)
+        durations.append(index2)
+        notes = notes[1:]
+        durations = durations[1:]
+
+    # create stream from predictions
+    offset = 0
+    output_notes = []
+    # create note and chord objects based on the values generated by the model
+    for pattern, duration in prediction_output:
+        # pattern is a chord
+        if ('.' in pattern) or pattern.isdigit():
+            notes_in_chord = pattern.split('.')
+            notes = []
+            for current_note in notes_in_chord:
+                new_note = note.Note(int(current_note))
+                new_note.storedInstrument = instrument.Piano()
+                notes.append(new_note)
+            new_element = chord.Chord(notes)
+        # pattern is a note
+        else:
+            new_element = note.Note(pattern)
+            new_element.storedInstrument = instrument.Piano()
+
+        duration = float(duration)
+        new_note.duration.quarterLength = duration
+        new_element.offset = offset
+        output_notes.append(new_element)
+        # increase offset each iteration so that notes do not stack
+        offset += duration
+    midi_stream = stream.Stream(output_notes)
+    midi_stream.write('midi', fp='output_epoch_{}.mid'.format(epoch))
+
 
 train_model()

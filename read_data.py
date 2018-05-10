@@ -1,42 +1,122 @@
 import music21
 from music21 import *
+import pretty_midi as pm
 import glob
 import pickle
 from pickle import load, dump
+from recordclass import recordclass
+
+
+Chord = recordclass("Chord", "start end notes")
+def merge_notes(notes):
+    result = []
+    for note in notes:
+        if len(result) > 0 and result[-1].start == note.start and result[-1].end == note.end:
+            if isinstance(result[-1], Chord):
+                result[-1].notes.append(note)
+            else:
+                result[-1] = Chord(note.start, note.end, [result[-1], note])
+        else:
+            result.append(note)
+
+
+    return result
+
+
+def quantize(midi, tracks):
+    quanta = int(midi.time_to_tick(60/midi.get_tempo_changes()[1][0])/6)  # min(durations)
+    durations = []
+    for _,_,track in tracks:
+        for note in track:
+            note.start = midi.tick_to_time(quanta*int(round(midi.time_to_tick(note.start)/quanta)))
+            # note.end = midi.tick_to_time(quanta*int(round(midi.time_to_tick(note.end)/quanta)))
+            duration = midi.time_to_tick((note.end - note.start)/quanta)
+            note.end = note.start + midi.tick_to_time(duration) * quanta
+            print(note.start/quanta)
+            if isinstance(note, Chord):
+                for n in note.notes:
+                    n.start = note.start
+                    n.end = note.end
+            durations.append(midi.time_to_tick(note.start))
+
+    durations = [x/quanta for x in durations]
+    for x in durations:
+        if abs(x - round(x)) > 0.1:
+            print("Failed to quantize: " + str(x))
+            print(durations)
+            exit(1)
+
 
 def get_notes():
     """ Get all the notes and chords from the midi files in the data directory """
     notes = []
-
-<<<<<<< HEAD:read-data.py
-    for file in glob.glob('data/bach/*/*.mid'): #only reads Bach
-        midi = converter.parse(file)
-
-=======
-    for file in glob.glob('data/*/*.mid')[0:4]:
->>>>>>> aa8c18e1ac959e0bbfcb18e454df459efca93c21:read_data.py
+    # for file in glob.glob('data/final_fantasy/*.mid'):  # only reads Bach
+    for file in glob.glob('data/bach/*/*.mid'):  # only reads Bach
+        # file = "data/final_fantasy/ff11_awakening_piano.mid"
+        # file = "data/final_fantasy/8.mid"
         print("Parsing %s" % file)
         midi = converter.parse(file)
+        # print([note.duration for note in midi.flat.notes])
+        # midi.write('midi', fp='test_midi.mid')
+        # print(len(instrument.partitionByInstrument(midi).parts))
+        # exit(1)
 
-        notes_to_parse = None
+        # notes_to_parse = None
 
-        try: # file has instrument parts
-            s2 = instrument.partitionByInstrument(midi)
-            notes_to_parse = s2.parts[0].recurse()
-        except: # file has notes in a flat structure
-            notes_to_parse = midi.flat.notes
+        # try:  # file has instrument parts
+        #     s2 = instrument.partitionByInstrument(midi)
+        #     notes_to_parse = s2.parts[0].recurse()
+        # except:  # file has notes in a flat structure
+        #     notes_to_parse = midi.flat.notes
+
+        # Melody is usually in the first track
+        notes_to_parse = midi.elements[0].flat.notes
 
         for element in notes_to_parse:
             if isinstance(element, note.Note):
-                notes.append(str(element.pitch))
+                notes.append(str(element.pitch) + ":" + str(float(element.duration.quarterLength)))
             elif isinstance(element, chord.Chord):
-                notes.append('.'.join(str(n) for n in element.normalOrder))
+                notes.append('.'.join(str(n) for n in element.normalOrder) + ":" + str(float(element.duration.quarterLength)))
 
-<<<<<<< HEAD:read-data.py
+        # midi = pm.PrettyMIDI(file)
+
+        # tracks = []
+        # for ins in midi.instruments:
+        #     merged = merge_notes(ins.notes)
+        #     num_chords = len([x for x in merged if isinstance(x, Chord)])
+        #     tracks.append((num_chords, len(merged), merged))
+
+
+        # # First track is always the main track (hopefully)
+        # main = tracks[0]
+        # tracks.remove(main)
+
+        # # Find the other track that has the most choords, or in case of a tie, the most notes
+        # # This is usually the second track, but not always
+        # tracks.sort(reverse=True, key=lambda x: (x[0], x[1]))
+        # quantize(midi, tracks)
+
+        # midi.write("test.mid")
+        # exit(0)
+
+        # if len(tracks) > 0:
+        #     secondary = tracks[0]
+        #     tracks.remove(secondary)
+
+
+        # print(len(midi.instruments[0].notes))
+        # print(len(midi.instruments[1].notes))
+
+    # print(set(names))
+    # exit(0)
+    # midi_stream = stream.Stream(convert_to_notes(notes))
+    # midi_stream.write('midi', fp='all.mid')
+
     with open('data/notes/notes.pickle', 'wb') as f:
         pickle.dump(notes, f)
 
     return notes
+
 
 def get_pickle():
 
@@ -44,13 +124,38 @@ def get_pickle():
         unpickled = load(f)
 
     return unpickled
-=======
-    with open('data/notes', 'wb') as filepath:
-        pickle.dump(notes, filepath)
 
-    return notes
+
+def convert_to_notes(notes_str):
+    # create stream from predictions
+    offset = 0
+    output_notes = []
+    # create note and chord objects based on the values generated by the model
+    for pattern in notes_str:
+        # pattern is a chord
+        pattern, dur = pattern.split(":")
+        if ('.' in pattern) or pattern.isdigit():
+            notes_in_chord = pattern.split('.')
+            notes = []
+            for current_note in notes_in_chord:
+                new_note = note.Note(int(current_note))
+                new_note.storedInstrument = instrument.Piano()
+                notes.append(new_note)
+            new_chord = chord.Chord(notes)
+            new_chord.offset = offset
+            output_notes.append(new_chord)
+        # pattern is a note
+        else:
+            new_note = note.Note(pattern)
+            new_note.offset = offset
+            new_note.storedInstrument = instrument.Piano()
+            output_notes.append(new_note)
+        output_notes[-1].duration = duration.Duration(float(dur))
+
+        # increase offset each iteration so that notes do not stack
+        offset += float(dur)
+    return output_notes
 
 if __name__ == "__main__":
     x = get_notes()
     print(x)
->>>>>>> aa8c18e1ac959e0bbfcb18e454df459efca93c21:read_data.py
