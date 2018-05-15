@@ -94,6 +94,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     network_input2 = []
     network_input3 = []
     network_input4 = []
+    network_input5 = []
     network_output = []
     network_output2 = []
     network_output3 = []
@@ -112,6 +113,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
             network_input2.append(song_input2[start:end])
             network_input3.append(song_input3[start:end])
             network_input4.append(song_input4[start:end])
+            network_input5.append(song_input4[end])
             network_output.append(song_input[end])
             network_output2.append(song_input2[end])
             network_output3.append(song_input3[end])
@@ -123,6 +125,8 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     network_input2 = np.reshape(network_input2, (n_patterns, sequence_length))
     network_input3 = np.reshape(network_input3, (n_patterns, sequence_length))
     network_input4 = np.reshape(network_input4, (n_patterns, sequence_length))
+
+    network_input5 = to_categorical(network_input5, num_classes=len(beats))
 
     if np.max(network_input) >= len(pitches) or np.min(network_input) < 0:
         raise Exception("Invalid pitch index")
@@ -148,7 +152,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
 
     perm = np.random.permutation(n_patterns)
     return TrainingData(
-        [network_input[perm], network_input2[perm], network_input3[perm], network_input4[perm]],
+        [network_input[perm], network_input2[perm], network_input3[perm], network_input4[perm], network_input5[perm]],
         [network_output[perm], network_output2[perm], network_output3[perm]]
     )
 
@@ -156,10 +160,12 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
 def create_model(sequence_length, pitches, durations, beats, offsets):
     model = Sequential()
 
-    in_pitch = Input(shape=(sequence_length,))
-    in_duration = Input(shape=(sequence_length,))
-    in_offset = Input(shape=(sequence_length,))
-    in_beat = Input(shape=(sequence_length,))
+    in_pitch = Input(shape=(sequence_length,), name="in_pitches")
+    in_duration = Input(shape=(sequence_length,), name="in_durations")
+    in_offset = Input(shape=(sequence_length,), name="in_offsets")
+    in_beat = Input(shape=(sequence_length,), name="in_beats")
+    in_current_beat = Input(shape=(len(beats),), name="in_current_beat")
+
     emb_pitch = Embedding(len(pitches), 4, name="pitch_embedding")(in_pitch)
     emb_duration = Embedding(len(durations), 4, name="duration_embedding")(in_duration)
     emb_offset = Embedding(len(offsets), 4, name="offset_embedding")(in_offset)
@@ -171,6 +177,7 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     x = LSTM(256, return_sequences=True, activation="sigmoid")(x)
     x = Dropout(0.3)(x)
     x = LSTM(512, activation="sigmoid")(x)
+    x = Concatenate(axis=1)([x, in_current_beat])
     x = Dense(256, activation="relu")(x)
     drop = Dropout(0.3)(x)
     vocab = Dense(len(pitches))(drop)
@@ -182,7 +189,7 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     offset = Dense(len(offsets))(drop)
     out_offset = Activation('softmax', name="offsets")(offset)
 
-    model = Model(inputs=[in_pitch, in_duration, in_offset, in_beat], outputs=[out_pitch, out_duration, out_offset])
+    model = Model(inputs=[in_pitch, in_duration, in_offset, in_beat, in_current_beat], outputs=[out_pitch, out_duration, out_offset])
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
     return model
 
@@ -245,7 +252,9 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
             print("New beat didn't exist, resetting to beat zero")
             new_beat_index = beats.to_index(0)
 
-        prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4], verbose=0)
+        prediction_input5 = to_categorical(np.array([new_beat_index]), num_classes=len(beats))
+
+        prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4, prediction_input5], verbose=0)
         index1 = np.argmax(prediction_note)
         index2 = np.argmax(prediction_duration)
         index3 = np.argmax(prediction_offset)
