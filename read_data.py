@@ -1,73 +1,99 @@
 import music21
 from music21 import *
-import pretty_midi as pm
 import glob
 import pickle
 from pickle import load, dump
 from recordclass import recordclass
 
 
-Chord = recordclass("Chord", "start end notes")
-def merge_notes(notes):
-    result = []
-    for note in notes:
-        if len(result) > 0 and result[-1].start == note.start and result[-1].end == note.end:
-            if isinstance(result[-1], Chord):
-                result[-1].notes.append(note)
-            else:
-                result[-1] = Chord(note.start, note.end, [result[-1], note])
-        else:
-            result.append(note)
+# Chord = recordclass("Chord", "start end notes")
+# def merge_notes(notes):
+#     result = []
+#     for note in notes:
+#         if len(result) > 0 and result[-1].start == note.start and result[-1].end == note.end:
+#             if isinstance(result[-1], Chord):
+#                 result[-1].notes.append(note)
+#             else:
+#                 result[-1] = Chord(note.start, note.end, [result[-1], note])
+#         else:
+#             result.append(note)
 
 
-    return result
+#     return result
 
 
-def quantize(midi, tracks):
-    quanta = int(midi.time_to_tick(60/midi.get_tempo_changes()[1][0])/6)  # min(durations)
-    durations = []
-    for _,_,track in tracks:
-        for note in track:
-            note.start = midi.tick_to_time(quanta*int(round(midi.time_to_tick(note.start)/quanta)))
-            # note.end = midi.tick_to_time(quanta*int(round(midi.time_to_tick(note.end)/quanta)))
-            duration = midi.time_to_tick((note.end - note.start)/quanta)
-            note.end = note.start + midi.tick_to_time(duration) * quanta
-            print(note.start/quanta)
-            if isinstance(note, Chord):
-                for n in note.notes:
-                    n.start = note.start
-                    n.end = note.end
-            durations.append(midi.time_to_tick(note.start))
+# def quantize(midi, tracks):
+#     quanta = int(midi.time_to_tick(60/midi.get_tempo_changes()[1][0])/6)  # min(durations)
+#     durations = []
+#     for _,_,track in tracks:
+#         for note in track:
+#             note.start = midi.tick_to_time(quanta*int(round(midi.time_to_tick(note.start)/quanta)))
+#             # note.end = midi.tick_to_time(quanta*int(round(midi.time_to_tick(note.end)/quanta)))
+#             duration = midi.time_to_tick((note.end - note.start)/quanta)
+#             note.end = note.start + midi.tick_to_time(duration) * quanta
+#             print(note.start/quanta)
+#             if isinstance(note, Chord):
+#                 for n in note.notes:
+#                     n.start = note.start
+#                     n.end = note.end
+#             durations.append(midi.time_to_tick(note.start))
 
-    durations = [x/quanta for x in durations]
-    for x in durations:
-        if abs(x - round(x)) > 0.1:
-            print("Failed to quantize: " + str(x))
-            print(durations)
-            exit(1)
+#     durations = [x/quanta for x in durations]
+#     for x in durations:
+#         if abs(x - round(x)) > 0.1:
+#             print("Failed to quantize: " + str(x))
+#             print(durations)
+#             exit(1)
 
+Item = recordclass("Item", "repr duration beat offset_from_previous")
+
+def pitch(e):
+    if isinstance(e, note.Note):
+        return e.pitch.ps
+    else:
+        return sum(x.ps for x in e.pitches)/len(e.pitches)
 
 def get_notes():
     """ Get all the notes and chords from the midi files in the data directory """
     notes = []
     # for file in glob.glob('data/final_fantasy/*.mid'):  # only reads Bach
     for file in glob.glob('data/bach/*/*.mid'):  # only reads Bach
+        # file = "data/final_fantasy/ahead_on_our_way_piano.mid"
         print("Parsing %s" % file)
         midi = converter.parse(file)
 
         notes_to_parse = midi.elements[0].flat.notes
+        notes_to_parse = [x for x in notes_to_parse if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
+        # notes_to_parse.sort(key=lambda x: (x.offset, pitch(x)))
+
         highest_time = -1
-
+        file_notes = []
+        current = None
         for element in notes_to_parse:
-            if element.offset < highest_time:
-                continue
-            if isinstance(element, note.Note):
-                notes.append(str(element.pitch) + ":" + str(float(element.duration.quarterLength)))
-            elif isinstance(element, chord.Chord):
-                notes.append('.'.join(str(n) for n in element.normalOrder) + ":" + str(float(element.duration.quarterLength)))
-            highest_time = element.offset + element.duration.quarterLength
+            if len(file_notes) == 0:
+                file_notes.append(element)
+            elif element.offset >= file_notes[-1].offset + file_notes[-1].duration.quarterLength - 0.0001:
+                file_notes.append(element)
+            elif pitch(element) > pitch(file_notes[-1]):
+                file_notes[-1] = element
+            else:
+                print("Ignored")
 
-    # midi_stream = stream.Stream(convert_to_notes(notes))
+
+        str_notes = []
+        for element in file_notes:
+            note_str = None
+            if isinstance(element, note.Note):
+                note_str = str(element.pitch) + ":" + str(float(element.duration.quarterLength)) + ":" + str(element.beat)
+            elif isinstance(element, chord.Chord):
+                note_str = '.'.join(str(n) for n in element.normalOrder) + ":" + str(float(element.duration.quarterLength)) + ":" + str(element.beat)
+            
+            str_notes.append(note_str)
+
+        notes.append(str_notes)
+        # break
+
+    # midi_stream = stream.Stream(convert_to_notes(notes[0]))
     # midi_stream.write('midi', fp='all.mid')
 
     with open('data/notes/notes.pickle', 'wb') as f:
