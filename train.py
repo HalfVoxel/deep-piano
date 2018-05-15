@@ -205,7 +205,7 @@ def train_model():
         save_best_only=True,
         mode='min'
     )
-    id = datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True)[0:6]
+    id = datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True).decode('utf-8')[0:6]
     tensorboard = TensorBoard(log_dir='./logs/' + id + "/", histogram_freq=0, write_graph=True, write_images=False)
     callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, epoch, pitches, durations, beats, offsets))]
     # model.load_weights('checkpoints/weights.hdf5')
