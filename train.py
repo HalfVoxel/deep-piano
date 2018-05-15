@@ -16,7 +16,9 @@ TrainingData = namedtuple("TrainingData", ["input", "output"])
 sequence_length = 100
 
 
-def analyze_data(notes):
+def analyze_data(songs):
+    # Concatenate all songs
+    notes = sum(songs, [])
     # get all pitch names
     notes_names = sorted(set([note.split(":")[0] for note in notes]))
     duration_names = sorted(set([str(round(float(note.split(":")[1]),4)) for note in notes]))
@@ -51,7 +53,7 @@ def split_data(data):
     return train, test, validation
 
 
-def prepare_input(notes, num_notes, num_durations, note_to_int, duration_to_int, sequence_length):
+def prepare_input(songs, num_notes, num_durations, note_to_int, duration_to_int, sequence_length):
 
     network_input = []
     network_input2 = []
@@ -59,14 +61,15 @@ def prepare_input(notes, num_notes, num_durations, note_to_int, duration_to_int,
     network_output2 = []
     print(num_notes, num_durations)
 
-    # create input sequences and the corresponding outputs
-    for i in range(0, len(notes) - sequence_length, 1):
-        sequence_in = notes[i:i + sequence_length]
-        sequence_out = notes[i + sequence_length]
-        network_input.append([note_to_int(char) for char in sequence_in])
-        network_input2.append([duration_to_int(char) for char in sequence_in])
-        network_output.append(note_to_int(sequence_out))
-        network_output2.append(duration_to_int(sequence_out))
+    for notes in songs:
+        # create input sequences and the corresponding outputs
+        for i in range(0, len(notes) - sequence_length, 1):
+            sequence_in = notes[i:i + sequence_length]
+            sequence_out = notes[i + sequence_length]
+            network_input.append([note_to_int(char) for char in sequence_in])
+            network_input2.append([duration_to_int(char) for char in sequence_in])
+            network_output.append(note_to_int(sequence_out))
+            network_output2.append(duration_to_int(sequence_out))
 
     n_patterns = len(network_input)
 
@@ -98,11 +101,50 @@ def create_model(sequence_length, n_vocab, n_durations):
     en = Embedding(n_vocab,4, name="note_embedding")(in_note)
     ed = Embedding(n_durations,4, name="duration_embedding")(in_duration)
     x = Concatenate(axis=2)([en,ed])
-    x = LSTM(512, return_sequences=True)(x)
+    x = LSTM(512, return_sequences=True, activation="sigmoid")(x)
     x = Dropout(0.3)(x)
-    x = LSTM(256, return_sequences=True)(x)
+    x = LSTM(256, return_sequences=True, activation="sigmoid")(x)
     x = Dropout(0.3)(x)
-    x = LSTM(512)(x)
+    x = LSTM(512, activation="sigmoid")(x)
+    x = Dense(256, activation="relu")(x)
+    drop = Dropout(0.3)(x)
+    vocab = Dense(n_vocab)(drop)
+    out_note = Activation('softmax', name="notes")(vocab)
+
+    duration = Dense(n_durations)(drop)
+    out_duration = Activation('softmax', name="durations")(duration)
+
+    model = Model(inputs=[in_note, in_duration], outputs=[out_note, out_duration])
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
+    return model
+
+
+def create_comp_model(sequence_length, n_vocab, n_durations):
+    model = Sequential()
+
+    in_note = Input(shape=(sequence_length,))
+    in_duration = Input(shape=(sequence_length,))
+    in_future_note = Input(shape=(sequence_length,))
+    in_future_duration = Input(shape=(sequence_length,))
+
+    for note, dur in [(in_note, in_duration), (in_future_note, in_future_duration)]:
+        en = Embedding(n_vocab,4)(note)
+        ed = Embedding(n_durations,4)(dur)
+        x = Concatenate(axis=2)([en,ed])
+        x = Bidirectional(LSTM(512, return_sequences=True))(x)
+        x = Dropout(0.3)(x)
+        x = LSTM(256, return_sequences=True)(x)
+        x = Dropout(0.3)(x)
+        x = LSTM(512)(x)
+
+    en2 = Embedding(n_vocab,4, name="note_embedding2")(in_future_note)
+    ed2 = Embedding(n_durations,4, name="duration_embedding2")(in_future_duration)
+    x2 = Concatenate(axis=2)([en2,ed2])
+    x2 = Bidirectional(LSTM(512, return_sequences=True))(x2)
+
+    x = Concatenate(axis=2)([x,x2])
+
+    
     x = Dense(256)(x)
     drop = Dropout(0.3)(x)
     vocab = Dense(n_vocab)(drop)

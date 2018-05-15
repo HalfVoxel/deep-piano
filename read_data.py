@@ -64,33 +64,23 @@ def get_notes():
 
         notes_to_parse = midi.elements[0].flat.notes
         notes_to_parse = [x for x in notes_to_parse if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
-        # notes_to_parse.sort(key=lambda x: (x.offset, pitch(x)))
+        notes_to_parse.sort(key=lambda x: (x.offset, pitch(x)))
 
         highest_time = -1
         file_notes = []
         current = None
+        last_offset = 0
         for element in notes_to_parse:
-            if len(file_notes) == 0:
-                file_notes.append(element)
-            elif element.offset >= file_notes[-1].offset + file_notes[-1].duration.quarterLength - 0.0001:
-                file_notes.append(element)
-            elif pitch(element) > pitch(file_notes[-1]):
-                file_notes[-1] = element
-            else:
-                print("Ignored")
-
-
-        str_notes = []
-        for element in file_notes:
             note_str = None
             if isinstance(element, note.Note):
-                note_str = str(element.pitch) + ":" + str(float(element.duration.quarterLength)) + ":" + str(element.beat)
+                note_str = str(element.pitch) + ":" + str(float(element.duration.quarterLength))
             elif isinstance(element, chord.Chord):
-                note_str = '.'.join(str(n) for n in element.normalOrder) + ":" + str(float(element.duration.quarterLength)) + ":" + str(element.beat)
-            
-            str_notes.append(note_str)
+                note_str = '.'.join(str(n) for n in element.normalOrder) + ":" + str(float(element.duration.quarterLength))
 
-        notes.append(str_notes)
+            file_notes.append(Item(note_str, element.duration, element.beat, element.offset - last_offset))
+            last_offset = element.offset
+
+        notes.append(file_notes)
         # break
 
     # midi_stream = stream.Stream(convert_to_notes(notes[0]))
