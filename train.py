@@ -9,6 +9,8 @@ import os
 import sys
 from read_data import Item
 from fractions import Fraction
+import subprocess
+from datetime import datetime
 
 # sys.path.insert(1, os.path.join(sys.path[0], 'music21'))
 # print(sys.path)
@@ -203,7 +205,8 @@ def train_model():
         save_best_only=True,
         mode='min'
     )
-    tensorboard = TensorBoard(log_dir='./logs', histogram_freq=0, write_graph=True, write_images=False)
+    id = datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True)[0:6]
+    tensorboard = TensorBoard(log_dir='./logs/' + id + "/", histogram_freq=0, write_graph=True, write_images=False)
     callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, epoch, pitches, durations, beats, offsets))]
     # model.load_weights('checkpoints/weights.hdf5')
     model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.05)
