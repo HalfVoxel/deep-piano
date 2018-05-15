@@ -45,7 +45,7 @@ from recordclass import recordclass
 #             print(durations)
 #             exit(1)
 
-Item = recordclass("Item", "pitches duration beat offset_from_previous")
+Item = recordclass("Item", "pitches duration beat offset_to_next")
 
 
 def pitch(e):
@@ -67,7 +67,6 @@ def read_midi(file):
     notes_to_parse.sort(key=lambda x: (x.offset, pitch(x)))
 
     file_notes = []
-    last_offset = 0
     for element in notes_to_parse:
         pitches = []
         if isinstance(element, note.Note):
@@ -85,9 +84,14 @@ def read_midi(file):
         else:
             assert False
 
-        file_notes.append(Item(pitches, element.duration.quarterLength, element.beat, element.offset - last_offset))
-        last_offset = element.offset
+        file_notes.append(Item(pitches, element.duration.quarterLength, element.beat % 4, element.offset))
 
+    # Convert raw offsets to delta offsets
+    for i in range(len(file_notes)-1):
+        item = file_notes[i]
+        item.offset_to_next = file_notes[i+1].offset_to_next - item.offset_to_next
+
+    file_notes[-1].offset_to_next = 0
     return file_notes
 
 
@@ -103,9 +107,9 @@ def get_notes():
         pickle.dump(notes, f)
 
     # file = "data/final_fantasy/ahead_on_our_way_piano.mid"
-    file = "data/bach/cantatas/jesu1.mid"
+    # file = "data/bach/cantatas/jesu1.mid"
     # file = "data/bach/sinfon/sinfon1.mid"
-    # print(read_midi(file))
+    # # print(read_midi(file))
     # midi_stream = stream.Stream(convert_to_notes(read_midi(file)))
     # midi_stream.write('midi', fp='all.mid')
 
@@ -140,8 +144,8 @@ def convert_to_notes(input_notes):
             new_element.storedInstrument = instrument.Piano()
 
         new_element.duration.quarterLength = item.duration
-        new_element.offset = offset + item.offset_from_previous
-        offset = new_element.offset
+        new_element.offset = offset
+        offset += item.offset_to_next
         output_notes.append(new_element)
     return output_notes
 

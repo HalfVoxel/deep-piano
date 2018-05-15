@@ -45,19 +45,19 @@ def analyze_data(songs):
                 note.pitches,
                 Fraction(note.duration).limit_denominator(100),
                 Fraction(note.beat).limit_denominator(100),
-                Fraction(note.offset_from_previous).limit_denominator(100)
+                Fraction(note.offset_to_next).limit_denominator(100)
             ) for note in songs[i]
         ]
 
         for note in song:
-            # pitches duration beat offset_from_previous
+            # pitches duration beat offset_to_next
             notes.append(note)
 
 
     # get all pitch names
     pitches = IndexMapping(sorted(set([note.pitches for note in notes])))
     durations = IndexMapping(sorted(set([note.duration for note in notes])))
-    offsets = IndexMapping(sorted(set([note.offset_from_previous for note in notes])))
+    offsets = IndexMapping(sorted(set([note.offset_to_next for note in notes])))
     beats = IndexMapping(sorted(set([note.beat for note in notes])))
     # print(len(durations), durations.index2value)
     # print(len(pitches), pitches.index2value)
@@ -101,7 +101,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     for notes in songs:
         song_input = [pitches.to_index(char.pitches) for char in notes]
         song_input2 = [durations.to_index(char.duration) for char in notes]
-        song_input3 = [offsets.to_index(char.offset_from_previous) for char in notes]
+        song_input3 = [offsets.to_index(char.offset_to_next) for char in notes]
         song_input4 = [beats.to_index(char.beat) for char in notes]
 
         # create input sequences and the corresponding outputs
@@ -205,7 +205,7 @@ def train_model():
         save_best_only=True,
         mode='min'
     )
-    id = datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True).decode('utf-8')[0:6]
+    id = datetime.now().strftime("%Y%m%d-%H%M") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True).decode('utf-8')[0:6]
     tensorboard = TensorBoard(log_dir='./logs/' + id + "/", histogram_freq=0, write_graph=True, write_images=False)
     callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, epoch, pitches, durations, beats, offsets))]
     # model.load_weights('checkpoints/weights.hdf5')
@@ -227,24 +227,36 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
     input_pitch, input_duration, input_offset, input_beat = list(data.input[0][start]), list(data.input[1][start]), list(data.input[2][start]), list(data.input[3][start])
     prediction_output = []
     sequence_length = len(input_pitch)
+
+    # for i in range(sequence_length-1):
+    #     print(beats.to_value(input_beat[i+1]), beats.to_value(input_beat[i]), offsets.to_value(input_offset[i]), (beats.to_value(input_beat[i]) + offsets.to_value(input_offset[i])) % 4)
+
     # generate 500 input_pitch
     for note_index in range(500):
         prediction_input1 = np.reshape(input_pitch[note_index:note_index+sequence_length], (1, sequence_length))
         prediction_input2 = np.reshape(input_duration[note_index:note_index+sequence_length], (1, sequence_length))
         prediction_input3 = np.reshape(input_offset[note_index:note_index+sequence_length], (1, sequence_length))
         prediction_input4 = np.reshape(input_beat[note_index:note_index+sequence_length], (1, sequence_length))
+        new_beat = Fraction(beats.to_value(input_beat[-1]) + offsets.to_value(input_offset[-1])) % 4
+
+        try:
+            new_beat_index = beats.to_index(new_beat)
+        except:
+            print("New beat didn't exist, resetting to beat zero")
+            new_beat_index = beats.to_index(0)
 
         prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4], verbose=0)
         index1 = np.argmax(prediction_note)
         index2 = np.argmax(prediction_duration)
         index3 = np.argmax(prediction_offset)
-        result = Item(pitches.to_value(index1), durations.to_value(index2), None, offsets.to_value(index3))
+        result = Item(pitches.to_value(index1), durations.to_value(index2), new_beat, offsets.to_value(index3))
+
         prediction_output.append(result)
         input_pitch.append(index1)
         input_duration.append(index2)
         input_offset.append(index3)
-        new_beat = Fraction(input_beat[-1] + result.offset_from_previous) % 4
-        input_beat.append(new_beat)
+        input_beat.append(new_beat_index)
+
 
     output_notes = read_data.convert_to_notes(prediction_output)
     midi_stream = stream.Stream(output_notes)
