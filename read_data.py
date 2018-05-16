@@ -55,6 +55,38 @@ def pitch(e):
         return sum(x.ps for x in e.pitches)/len(e.pitches)
 
 
+def track_similarity(trackA, trackB):
+    trackA = [x for x in trackA if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
+    trackB = [x for x in trackB if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
+    trackA.sort(key=lambda x: (x.offset, pitch(x)))
+    trackB.sort(key=lambda x: (x.offset, pitch(x)))
+
+    ia = 0
+    ib = 0
+    similarity = 0
+    while ia < len(trackA) and ib < len(trackB):
+        keyA = (trackA[ia].offset, pitch(trackA[ia]))
+        keyB = (trackB[ib].offset, pitch(trackB[ib]))
+        if keyA < keyB:
+            ia += 1
+        elif keyB < keyA:
+            ib += 1
+        else:
+            # Same
+            if trackA[ia].duration.quarterLength == trackB[ib].duration.quarterLength:
+                if isinstance(trackA[ia], note.Note) and isinstance(trackB[ib], note.Note):
+                    if trackA[ia].pitch.ps == trackB[ib].pitch.ps:
+                        similarity += 1
+                elif isinstance(trackA[ia], chord.Chord) and isinstance(trackB[ib], chord.Chord):
+                    if [x.ps for x in trackA[ia].pitches] == [x.ps for x in trackB[ib].pitches]:
+                        similarity += 1
+
+            ia += 1
+            ib += 1
+
+    return similarity / max(1, max(len(trackA), len(trackB)))
+
+
 def read_midi(file):
     midi = converter.parse(file)
     tsFourFour = meter.TimeSignature('4/4')
@@ -62,6 +94,22 @@ def read_midi(file):
         print("Skipped because time signature was " + str(midi.elements[0].timeSignature))
         return []
 
+    toKeep = []
+    print(len(midi.flat.notes))
+    for i in range(len(midi.elements)):
+        keep = True
+        for j in range(0, i):
+            sim = track_similarity(midi.elements[i].notes, midi.elements[j].notes)
+            if sim > 0.7:
+                keep = False
+                print("Similarity ", sim)
+
+        if keep:
+            toKeep.append(midi.elements[i])
+
+    midi = stream.Stream(toKeep)
+
+    print("Removed", "some tracks: ", len(midi.flat.notes))
     notes_to_parse = midi.flat.notes
     notes_to_parse = [x for x in notes_to_parse if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
     notes_to_parse.sort(key=lambda x: (x.offset, pitch(x)))
