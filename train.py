@@ -2,7 +2,7 @@ from collections import namedtuple
 import numpy as np
 from keras import Sequential, Model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, TensorBoard
-from keras.layers import LSTM, Dropout, Dense, Activation, Input, Embedding, Concatenate
+from keras.layers import LSTM, Dropout, Dense, Activation, Input, Embedding, Concatenate, BatchNormalization
 from keras.utils import to_categorical
 import read_data
 import os
@@ -166,7 +166,7 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     in_beat = Input(shape=(sequence_length,), name="in_beats")
     in_current_beat = Input(shape=(len(beats),), name="in_current_beat")
 
-    emb_pitch = Embedding(len(pitches), 4, name="pitch_embedding")(in_pitch)
+    emb_pitch = Embedding(len(pitches), 12, name="pitch_embedding")(in_pitch)
     emb_duration = Embedding(len(durations), 4, name="duration_embedding")(in_duration)
     emb_offset = Embedding(len(offsets), 4, name="offset_embedding")(in_offset)
     emb_beat = Embedding(len(beats), 4, name="beat_embedding")(in_beat)
@@ -178,7 +178,20 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     x = Dropout(0.3)(x)
     x = LSTM(512, activation="sigmoid")(x)
     x = Concatenate(axis=1)([x, in_current_beat])
-    x = Dense(256, activation="relu")(x)
+    x = Dense(512)(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x2 = Dense(64)(x)
+    x2 = BatchNormalization()(x2)
+    x2 = Activation('relu')(x2)
+    x2 = Dense(64)(x2)
+    x2 = BatchNormalization()(x2)
+    x2 = Activation('relu')(x2)
+    x2 = Dense(64)(x2)
+    x2 = BatchNormalization()(x2)
+    x2 = Activation('relu')(x2)
+    x2 = Dense(64)(x2)
+    x = Concatenate()([x, x2])
     drop = Dropout(0.3)(x)
     vocab = Dense(len(pitches))(drop)
     out_pitch = Activation('softmax', name="notes")(vocab)
