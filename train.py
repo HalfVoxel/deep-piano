@@ -89,12 +89,17 @@ def split_data(data):
     return train, test, validation
 
 
+def pitch(item):
+    # 60 is just a made up multiplier to keep the data roughly around 1
+    return (sum(item.pitches)/len(item.pitches)) / 60
+
 def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     network_input = []
     network_input2 = []
     network_input3 = []
     network_input4 = []
     network_input5 = []
+    network_input6 = []
     network_output = []
     network_output2 = []
     network_output3 = []
@@ -104,6 +109,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
         song_input2 = [durations.to_index(char.duration) for char in notes]
         song_input3 = [offsets.to_index(char.offset_to_next) for char in notes]
         song_input4 = [beats.to_index(char.beat) for char in notes]
+        song_input6 = [pitch(char) for char in notes]
 
         # create input sequences and the corresponding outputs
         for i in range(0, len(notes) - sequence_length, 1):
@@ -114,6 +120,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
             network_input3.append(song_input3[start:end])
             network_input4.append(song_input4[start:end])
             network_input5.append(song_input4[end])
+            network_input6.append(song_input6[start:end])
             network_output.append(song_input[end])
             network_output2.append(song_input2[end])
             network_output3.append(song_input3[end])
@@ -125,6 +132,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     network_input2 = np.reshape(network_input2, (n_patterns, sequence_length))
     network_input3 = np.reshape(network_input3, (n_patterns, sequence_length))
     network_input4 = np.reshape(network_input4, (n_patterns, sequence_length))
+    network_input6 = np.reshape(network_input6, (n_patterns, sequence_length, 1))
 
     network_input5 = to_categorical(network_input5, num_classes=len(beats))
 
@@ -152,7 +160,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
 
     perm = np.random.permutation(n_patterns)
     return TrainingData(
-        [network_input[perm], network_input2[perm], network_input3[perm], network_input4[perm], network_input5[perm]],
+        [network_input[perm], network_input2[perm], network_input3[perm], network_input4[perm], network_input5[perm], network_input6[perm]],
         [network_output[perm], network_output2[perm], network_output3[perm]]
     )
 
@@ -165,13 +173,14 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     in_offset = Input(shape=(sequence_length,), name="in_offsets")
     in_beat = Input(shape=(sequence_length,), name="in_beats")
     in_current_beat = Input(shape=(len(beats),), name="in_current_beat")
+    in_pitch_float = Input(shape=(sequence_length,1), name="in_pitches_float")
 
     emb_pitch = Embedding(len(pitches), 12, name="pitch_embedding")(in_pitch)
     emb_duration = Embedding(len(durations), 4, name="duration_embedding")(in_duration)
     emb_offset = Embedding(len(offsets), 4, name="offset_embedding")(in_offset)
     emb_beat = Embedding(len(beats), 4, name="beat_embedding")(in_beat)
 
-    x = Concatenate(axis=2)([emb_pitch, emb_duration, emb_offset, emb_beat])
+    x = Concatenate(axis=2)([emb_pitch, emb_duration, emb_offset, emb_beat, in_pitch_float])
     x = LSTM(512, return_sequences=True, activation="sigmoid")(x)
     x = Dropout(0.3)(x)
     x = LSTM(512, return_sequences=True, activation="sigmoid")(x)
@@ -190,7 +199,7 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     offset = Dense(len(offsets))(drop)
     out_offset = Activation('softmax', name="offsets")(offset)
 
-    model = Model(inputs=[in_pitch, in_duration, in_offset, in_beat, in_current_beat], outputs=[out_pitch, out_duration, out_offset])
+    model = Model(inputs=[in_pitch, in_duration, in_offset, in_beat, in_current_beat, in_pitch_float], outputs=[out_pitch, out_duration, out_offset])
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
     return model
 
@@ -232,7 +241,7 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
     # create a sequence of note/chord predictions
     start = np.random.randint(0, data.input[0].shape[0] - 1)
 
-    input_pitch, input_duration, input_offset, input_beat = list(data.input[0][start]), list(data.input[1][start]), list(data.input[2][start]), list(data.input[3][start])
+    input_pitch, input_duration, input_offset, input_beat, input_pitch_float = list(data.input[0][start]), list(data.input[1][start]), list(data.input[2][start]), list(data.input[3][start]), list(data.input[5][start])
     prediction_output = []
     sequence_length = len(input_pitch)
 
@@ -245,6 +254,7 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
         prediction_input2 = np.reshape(input_duration[note_index:note_index+sequence_length], (1, sequence_length))
         prediction_input3 = np.reshape(input_offset[note_index:note_index+sequence_length], (1, sequence_length))
         prediction_input4 = np.reshape(input_beat[note_index:note_index+sequence_length], (1, sequence_length))
+        prediction_input6 = np.reshape(input_pitch_float[note_index:note_index+sequence_length], (1, sequence_length, 1))
         new_beat = Fraction(beats.to_value(input_beat[-1]) + offsets.to_value(input_offset[-1])) % 4
 
         try:
@@ -255,7 +265,7 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
 
         prediction_input5 = to_categorical(np.array([new_beat_index]), num_classes=len(beats))
 
-        prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4, prediction_input5], verbose=0)
+        prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4, prediction_input5, prediction_input6], verbose=0)
         index1 = np.argmax(prediction_note)
         index2 = np.argmax(prediction_duration)
         index3 = np.argmax(prediction_offset)
@@ -266,6 +276,7 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
         input_duration.append(index2)
         input_offset.append(index3)
         input_beat.append(new_beat_index)
+        input_pitch_float.append(pitch(result))
 
 
     output_notes = read_data.convert_to_notes(prediction_output)
