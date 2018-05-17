@@ -2,7 +2,7 @@ from collections import namedtuple
 import numpy as np
 from keras import Sequential, Model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, TensorBoard
-from keras.layers import LSTM, Dropout, Dense, Activation, Input, Embedding, Concatenate, BatchNormalization
+from keras.layers import LSTM, Dropout, Dense, Activation, Input, Embedding, Concatenate, BatchNormalization, GRU
 from keras.utils import to_categorical
 import read_data
 import os
@@ -166,6 +166,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
 
 
 def create_model(sequence_length, pitches, durations, beats, offsets):
+    # 500*12 + (12+4+4+4+50)*512 + 512*512 + 512*512 + 512*512 + 512*(500+50+50+50)
     model = Sequential()
 
     in_pitch = Input(shape=(sequence_length,), name="in_pitches")
@@ -181,13 +182,13 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     emb_beat = Embedding(len(beats), 4, name="beat_embedding")(in_beat)
 
     x = Concatenate(axis=2)([emb_pitch, emb_duration, emb_offset, emb_beat, in_pitch_float])
-    x = LSTM(512, return_sequences=True, activation="sigmoid")(x)
+    x = GRU(384, return_sequences=True, reset_after=True, recurrent_activation='sigmoid')(x)
     x = Dropout(0.3)(x)
-    x = LSTM(512, return_sequences=True, activation="sigmoid")(x)
+    x = GRU(384, return_sequences=True, reset_after=True, recurrent_activation='sigmoid')(x)
     x = Dropout(0.3)(x)
-    x = LSTM(512)(x)
+    x = GRU(384, reset_after=True, recurrent_activation='sigmoid')(x)
     x = Concatenate(axis=1)([x, in_current_beat])
-    x = Dense(512)(x)
+    x = Dense(384)(x)
     x = BatchNormalization()(x)
     drop = Dropout(0.3)(x)
     vocab = Dense(len(pitches))(drop)
@@ -213,6 +214,8 @@ def train_model():
     print("Creating model...")
     # train, test, validation = split_data(prepared)
     model = create_model(sequence_length, pitches, durations, beats, offsets)
+    print(model.count_params())
+    print(model.summary())
     os.makedirs("checkpoints", exist_ok=True)
     filepath = "checkpoints/weights-improvement-{epoch:02d}-{loss:.4f}-bigger.hdf5"
 
