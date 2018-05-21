@@ -16,8 +16,19 @@ from datetime import datetime
 # print(sys.path)
 from music21 import stream
 
+from matplotlib import rcParams
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+rcParams['font.family'] = 'serif'
+rcParams['font.serif'] = ['CMU Serif']
+rcParams['font.size'] = 16
+#Direct input
+#Options
+rcParams['mathtext.fontset'] = 'cm'
+
 Dataset = namedtuple("Dataset", ["input", "output"])
-TrainingData = namedtuple("TrainingData", ["input", "output"])
+TrainingData = namedtuple("TrainingData", ["input", "output", "indices"])
 sequence_length = 100
 
 
@@ -103,8 +114,9 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     network_output = []
     network_output2 = []
     network_output3 = []
+    indices = []
 
-    for notes in songs:
+    for song_index, notes in enumerate(songs):
         song_input = [pitches.to_index(char.pitches) for char in notes]
         song_input2 = [durations.to_index(char.duration) for char in notes]
         song_input3 = [offsets.to_index(char.offset_to_next) for char in notes]
@@ -124,6 +136,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
             network_output.append(song_input[end])
             network_output2.append(song_input2[end])
             network_output3.append(song_input3[end])
+            indices.append(song_index)
 
     n_patterns = len(network_input)
 
@@ -161,7 +174,8 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     perm = np.random.permutation(n_patterns)
     return TrainingData(
         [network_input[perm], network_input2[perm], network_input3[perm], network_input4[perm], network_input5[perm], network_input6[perm]],
-        [network_output[perm], network_output2[perm], network_output3[perm]]
+        [network_output[perm], network_output2[perm], network_output3[perm]],
+        [np.array(indices)[perm]]
     )
 
 
@@ -233,7 +247,7 @@ def train_model():
 
 
 def load_and_generate():
-    data = load_data("data/final_fantasy")
+    data, names = load_data("data/final_fantasy")
     print("Analyzing...")
     pitches, durations, beats, offsets = analyze_data(data)
     print("Preparing input arrays...")
@@ -243,13 +257,14 @@ def load_and_generate():
     model.load_weights("<todo>")
 
     for i in range(10):
-        generate(model, prepared, i, pitches, durations, beats, offsets)
+        generate(model, prepared, i, pitches, durations, beats, offsets, names)
 
 
-def generate(model, data, epoch, pitches, durations, beats, offsets):
+def generate(model, data, epoch, pitches, durations, beats, offsets, song_names):
     print("Generating some stuff")
     # create a sequence of note/chord predictions
     start = np.random.randint(0, data.input[0].shape[0] - 1)
+    print("Based on " + song_names[data.indices[start]])
 
     input_pitch, input_duration, input_offset, input_beat, input_pitch_float = list(data.input[0][start]), list(data.input[1][start]), list(data.input[2][start]), list(data.input[3][start]), list(data.input[5][start])
     prediction_output = []
@@ -258,6 +273,7 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
     # for i in range(sequence_length-1):
     #     print(beats.to_value(input_beat[i+1]), beats.to_value(input_beat[i]), offsets.to_value(input_offset[i]), (beats.to_value(input_beat[i]) + offsets.to_value(input_offset[i])) % 4)
 
+    predictions = []
     # generate 500 input_pitch
     for note_index in range(500):
         prediction_input1 = np.reshape(input_pitch[note_index:note_index+sequence_length], (1, sequence_length))
@@ -276,9 +292,10 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
         prediction_input5 = to_categorical(np.array([new_beat_index]), num_classes=len(beats))
 
         prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4, prediction_input5, prediction_input6], verbose=0)
-        index1 = np.random.choice(p=prediction_note)
-        index2 = np.random.choice(p=prediction_duration)
-        index3 = np.random.choice(p=prediction_offset)
+        index1 = np.random.choice(len(prediction_note[0]), p=prediction_note[0])
+        index2 = np.random.choice(len(prediction_duration[0]), p=prediction_duration[0])
+        index3 = np.random.choice(len(prediction_offset[0]), p=prediction_offset[0])
+        predictions.append([prediction_note[0], prediction_duration[0], prediction_offset[0]])
         result = Item(pitches.to_value(index1), durations.to_value(index2), new_beat, offsets.to_value(index3))
 
         prediction_output.append(result)
@@ -288,11 +305,18 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
         input_beat.append(new_beat_index)
         input_pitch_float.append(pitch(result))
 
+    for i in range(3):
+        ps = np.array([x[i] for x in predictions])
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.imshow(ps, interpolation='bilinear', origin='lower', cmap=plt.get_cmap("YlOrRd"))
+        pdf = PdfPages("epoch_"+str(i) + '.pdf')
+        pdf.savefig(fig)
+        pdf.close()
 
     output_notes = read_data.convert_to_notes(prediction_output)
     midi_stream = stream.Stream(output_notes)
     midi_stream.write('midi', fp='output_epoch_{}.mid'.format(epoch))
 
 
-# load_and_generate()
-train_model()
+load_and_generate()
+# train_model()

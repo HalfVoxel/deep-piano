@@ -54,6 +54,11 @@ def pitch(e):
     else:
         return sum(x.ps for x in e.pitches)/len(e.pitches)
 
+def beat(e):
+    try:
+        return e.beat
+    except:
+        return 0
 
 def track_similarity(trackA, trackB):
     trackA = [x for x in trackA if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
@@ -90,7 +95,7 @@ def track_similarity(trackA, trackB):
 def read_midi(file):
     midi = converter.parse(file)
     tsFourFour = meter.TimeSignature('4/4')
-    if not midi.elements[0].timeSignature.ratioEqual(tsFourFour):
+    if midi.elements[0].timeSignature is not None and not midi.elements[0].timeSignature.ratioEqual(tsFourFour):
         print("Skipped because time signature was " + str(midi.elements[0].timeSignature))
         return []
 
@@ -132,7 +137,7 @@ def read_midi(file):
         else:
             assert False
 
-        file_notes.append(Item(pitches, element.duration.quarterLength, element.beat % 4, element.offset))
+        file_notes.append(Item(pitches, element.duration.quarterLength, beat(element) % 4, element.offset))
 
     # Convert raw offsets to delta offsets
     for i in range(len(file_notes)-1):
@@ -146,13 +151,15 @@ def read_midi(file):
 def get_notes():
     """ Get all the notes and chords from the midi files in the data directory """
     notes = []
+    names = []
     # for file in glob.glob('data/final_fantasy/*.mid'):
     for file in glob.glob('data/bach/*/*.mid'):  # only reads Bach
         print("Parsing %s" % file)
         notes.append(read_midi(file))
+        names.append(file)
 
     with open('data/notes/notes.pickle', 'wb') as f:
-        pickle.dump(notes, f)
+        pickle.dump((notes, names), f)
 
     # file = "data/final_fantasy/ahead_on_our_way_piano.mid"
     # file = "data/bach/cantatas/jesu1.mid"
@@ -161,7 +168,7 @@ def get_notes():
     # midi_stream = stream.Stream(convert_to_notes(read_midi(file)))
     # midi_stream.write('midi', fp='all.mid')
 
-    return notes
+    return notes, names
 
 
 def get_pickle():
