@@ -153,7 +153,12 @@ def get_notes():
     notes = []
     names = []
     # for file in glob.glob('data/final_fantasy/*.mid'):
-    for file in glob.glob('data/bach/*/*.mid'):  # only reads Bach
+    for file in glob.glob('data/final_fantasy/*.mid'):  # only reads Bach
+        print("Parsing %s" % file)
+        notes.append(read_midi(file))
+        names.append(file)
+
+    for file in glob.glob('data/final_fantasy2/*.mid'):  # only reads Bach
         print("Parsing %s" % file)
         notes.append(read_midi(file))
         names.append(file)
