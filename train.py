@@ -233,10 +233,17 @@ def train_model():
 
 
 def load_and_generate():
-    # model = create_model()
-    # # Load the weights to each node
-    # model.load_weights('checkpoints/weights.hdf5')
-    pass
+    data = load_data("data/final_fantasy")
+    print("Analyzing...")
+    pitches, durations, beats, offsets = analyze_data(data)
+    print("Preparing input arrays...")
+    prepared = prepare_input(data, sequence_length, pitches, durations, beats, offsets)
+    print("Creating model...")
+    model = create_model(sequence_length, pitches, durations, beats, offsets)
+    model.load_weights("<todo>")
+
+    for i in range(10):
+        generate(model, prepared, i, pitches, durations, beats, offsets)
 
 
 def generate(model, data, epoch, pitches, durations, beats, offsets):
@@ -269,9 +276,9 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
         prediction_input5 = to_categorical(np.array([new_beat_index]), num_classes=len(beats))
 
         prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4, prediction_input5, prediction_input6], verbose=0)
-        index1 = np.argmax(prediction_note)
-        index2 = np.argmax(prediction_duration)
-        index3 = np.argmax(prediction_offset)
+        index1 = np.random.choice(p=prediction_note)
+        index2 = np.random.choice(p=prediction_duration)
+        index3 = np.random.choice(p=prediction_offset)
         result = Item(pitches.to_value(index1), durations.to_value(index2), new_beat, offsets.to_value(index3))
 
         prediction_output.append(result)
@@ -287,4 +294,5 @@ def generate(model, data, epoch, pitches, durations, beats, offsets):
     midi_stream.write('midi', fp='output_epoch_{}.mid'.format(epoch))
 
 
+# load_and_generate()
 train_model()
