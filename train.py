@@ -146,6 +146,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     network_input3 = np.reshape(network_input3, (n_patterns, sequence_length))
     network_input4 = np.reshape(network_input4, (n_patterns, sequence_length))
     network_input6 = np.reshape(network_input6, (n_patterns, sequence_length, 1))
+    indices = np.reshape(indices, (n_patterns,))
 
     network_input5 = to_categorical(network_input5, num_classes=len(beats))
 
@@ -175,7 +176,7 @@ def prepare_input(songs, sequence_length, pitches, durations, beats, offsets):
     return TrainingData(
         [network_input[perm], network_input2[perm], network_input3[perm], network_input4[perm], network_input5[perm], network_input6[perm]],
         [network_output[perm], network_output2[perm], network_output3[perm]],
-        [np.array(indices)[perm]]
+        indices[perm]
     )
 
 
@@ -220,7 +221,7 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
 
 
 def train_model():
-    data = load_data("data/final_fantasy")
+    data, names = load_data("data/final_fantasy")
     print("Analyzing...")
     pitches, durations, beats, offsets = analyze_data(data)
     print("Preparing input arrays...")
@@ -239,9 +240,10 @@ def train_model():
         save_best_only=True,
         mode='min'
     )
-    id = datetime.now().strftime("%Y%m%d-%H%M") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True).decode('utf-8')[0:6]
+
+    os.makedirs(output_folder)
     tensorboard = TensorBoard(log_dir='./logs/' + id + "/", histogram_freq=0, write_graph=True, write_images=False)
-    callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, epoch, pitches, durations, beats, offsets))]
+    callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, epoch, pitches, durations, beats, offsets, names))]
     # model.load_weights('checkpoints/weights.hdf5')
     model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.05)
 
