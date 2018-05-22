@@ -16,6 +16,8 @@ from datetime import datetime
 # print(sys.path)
 from music21 import stream
 
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import rcParams
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -198,14 +200,14 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
 
     x = Concatenate(axis=2)([emb_pitch, emb_duration, emb_offset, emb_beat, in_pitch_float])
     x = GRU(200, return_sequences=True, reset_after=True, recurrent_activation='sigmoid')(x)
-    x = Dropout(0.3)(x)
+    x = Dropout(0.5)(x)
     x = GRU(200, return_sequences=True, reset_after=True, recurrent_activation='sigmoid')(x)
-    x = Dropout(0.3)(x)
-    x = GRU(200, reset_after=True, recurrent_activation='sigmoid')(x)
+    x = Dropout(0.5)(x)
+    x = GRU(400, reset_after=True, recurrent_activation='sigmoid')(x)
     x = Concatenate(axis=1)([x, in_current_beat])
-    x = Dense(200, activation="relu")(x)
+    x = Dense(400, activation="relu")(x)
     x = BatchNormalization()(x)
-    drop = Dropout(0.3)(x)
+    drop = Dropout(0.5)(x)
     vocab = Dense(len(pitches))(drop)
     out_pitch = Activation('softmax', name="notes")(vocab)
 
@@ -247,7 +249,7 @@ def train_model():
     tensorboard = TensorBoard(log_dir='./logs/' + id + "/", histogram_freq=0, write_graph=True, write_images=False)
     callbacks_list = [checkpoint, tensorboard, LambdaCallback(on_epoch_begin=lambda epoch, logs: generate(model, prepared, epoch, pitches, durations, beats, offsets, names))]
     # model.load_weights('checkpoints/weights.hdf5')
-    model.fit(prepared.input, prepared.output, epochs=200, batch_size=200, callbacks=callbacks_list, validation_split=0.05)
+    model.fit(prepared.input, prepared.output, epochs=50, batch_size=1000, callbacks=callbacks_list, validation_split=0.05)
 
 
 def load_and_generate():
@@ -271,8 +273,14 @@ def generate(model, data, epoch, pitches, durations, beats, offsets, song_names)
     print("Based on " + song_names[data.indices[start]])
 
     input_pitch, input_duration, input_offset, input_beat, input_pitch_float = list(data.input[0][start]), list(data.input[1][start]), list(data.input[2][start]), list(data.input[3][start]), list(data.input[5][start])
-    prediction_output = []
     sequence_length = len(input_pitch)
+
+    # input_pitch = list(np.random.random_integers(0, len(pitches)-1, size=sequence_length))
+    # input_duration = list(np.random.random_integers(0, len(durations)-1, size=sequence_length))
+    # input_offset = list(np.random.random_integers(0, len(offsets)-1, size=sequence_length))
+    # input_pitch_float = list(np.random.uniform(size=sequence_length))
+
+    prediction_output = []
 
     # for i in range(sequence_length-1):
     #     print(beats.to_value(input_beat[i+1]), beats.to_value(input_beat[i]), offsets.to_value(input_offset[i]), (beats.to_value(input_beat[i]) + offsets.to_value(input_offset[i])) % 4)
@@ -296,9 +304,9 @@ def generate(model, data, epoch, pitches, durations, beats, offsets, song_names)
         prediction_input5 = to_categorical(np.array([new_beat_index]), num_classes=len(beats))
 
         prediction_note, prediction_duration, prediction_offset = model.predict([prediction_input1, prediction_input2, prediction_input3, prediction_input4, prediction_input5, prediction_input6], verbose=0)
-        index1 = np.random.choice(len(prediction_note[0]), p=prediction_note[0])
-        index2 = np.random.choice(len(prediction_duration[0]), p=prediction_duration[0])
-        index3 = np.random.choice(len(prediction_offset[0]), p=prediction_offset[0])
+        index1 = np.random.choice(len(prediction_note[0]), p=prediction_note[0]**2 / np.sum(prediction_note[0]**2))
+        index2 = np.random.choice(len(prediction_duration[0]), p=prediction_duration[0]**2 / np.sum(prediction_duration[0]**2))
+        index3 = np.random.choice(len(prediction_offset[0]), p=prediction_offset[0]**2 / np.sum(prediction_offset[0]**2))
         predictions.append([prediction_note[0], prediction_duration[0], prediction_offset[0]])
         result = Item(pitches.to_value(index1), durations.to_value(index2), new_beat, offsets.to_value(index3))
 
@@ -310,16 +318,25 @@ def generate(model, data, epoch, pitches, durations, beats, offsets, song_names)
         input_pitch_float.append(pitch(result))
 
     for i in range(3):
+        for x in predictions:
+            x[i] /= np.max(x[i])
+
         ps = np.array([x[i] for x in predictions])
+        ps = ps.transpose()
         fig, ax = plt.subplots(figsize=(12, 5))
-        ax.imshow(ps, interpolation='bilinear', origin='lower', cmap=plt.get_cmap("YlOrRd"))
-        pdf = PdfPages("epoch_"+str(i) + '.pdf')
+        ax.imshow(ps, interpolation="nearest", origin='lower', cmap=plt.get_cmap("inferno"))
+        ax.set_ylabel(["Pitch", "Duration", "Offset"][i])
+        ax.set_xlabel("Time (note index)")
+        pdf = PdfPages(output_folder + "/epoch_"+str(epoch) + '_' + ["notes", "durations", "offsets"][i] + '.pdf')
         pdf.savefig(fig)
         pdf.close()
+        f = open(output_folder + "/epoch_" +str(epoch) + ".txt", "w")
+        f.write(song_names[data.indices[start]])
+        f.close()
 
     output_notes = read_data.convert_to_notes(prediction_output)
     midi_stream = stream.Stream(output_notes)
-    midi_stream.write('midi', fp='output_epoch_{}.mid'.format(epoch))
+    midi_stream.write('midi', fp=output_folder + '/epoch_{}.mid'.format(epoch))
 
 
 load_and_generate()

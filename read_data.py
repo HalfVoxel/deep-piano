@@ -116,6 +116,14 @@ def read_midi(file):
 
     print("Removed", "some tracks: ", len(midi.flat.notes))
     notes_to_parse = midi.flat.notes
+
+    # Note: does not seem to detect changes in time signature
+    times = [x for x in notes_to_parse if isinstance(x, meter.TimeSignature)]
+    for ts in times:
+        if not ts.ratioEqual(tsFourFour):
+            print("Skipped because song contained time signature " + str(ts))
+            return []
+
     notes_to_parse = [x for x in notes_to_parse if not isinstance(x, note.Rest) and not isinstance(x, tempo.MetronomeMark)]
     notes_to_parse.sort(key=lambda x: (x.offset, pitch(x)))
 
@@ -152,16 +160,16 @@ def get_notes():
     """ Get all the notes and chords from the midi files in the data directory """
     notes = []
     names = []
-    # for file in glob.glob('data/final_fantasy/*.mid'):
-    for file in glob.glob('data/final_fantasy/*.mid'):  # only reads Bach
+    for file in glob.glob('data/bach/*/*.mid'):
+    # for file in glob.glob('data/final_fantasy/*.mid'):  # only reads Bach
         print("Parsing %s" % file)
         notes.append(read_midi(file))
         names.append(file)
 
-    for file in glob.glob('data/final_fantasy2/*.mid'):  # only reads Bach
-        print("Parsing %s" % file)
-        notes.append(read_midi(file))
-        names.append(file)
+    # for file in glob.glob('data/final_fantasy2/*.mid'):  # only reads Bach
+    #     print("Parsing %s" % file)
+    #     notes.append(read_midi(file))
+    #     names.append(file)
 
     with open('data/notes/notes.pickle', 'wb') as f:
         pickle.dump((notes, names), f)
