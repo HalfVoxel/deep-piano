@@ -219,6 +219,8 @@ def create_model(sequence_length, pitches, durations, beats, offsets):
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
     return model
 
+id = datetime.now().strftime("%Y%m%d-%H%M") + "_" + subprocess.check_output("git rev-parse HEAD", shell=True).decode('utf-8')[0:6]
+output_folder = "results/" + str(id)
 
 def train_model():
     data, names = load_data("data/final_fantasy")
